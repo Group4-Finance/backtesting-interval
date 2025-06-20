@@ -1,0 +1,317 @@
+#%%
+import pandas as pd
+import datetime as dt
+from tabulate import tabulate
+import glob
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+# --------------------------------------------------------analyse date ---------------------------------------------------
+
+start_date = pd.to_datetime("2024-05-01").date()
+end_date = pd.to_datetime("2025-05-01").date()
+
+
+# -------------------------------------------------------------vix -------------------------------------------------------
+vix_path = "/content/vix_daily.csv"
+vix_df = pd.read_csv(vix_path, encoding="utf-8")
+
+vix_df["日期"] = pd.to_datetime(vix_df["Date"]).dt.date
+vix_df  = vix_df[(vix_df["日期"] >= start_date) & (vix_df["日期"] <= end_date)]
+
+
+vix_df["日期"] = vix_df["日期"]
+
+
+# def vix_signal(vix_close):  #原版
+#       if   vix_close <= 15 :
+#             return -1
+#       elif 15 < vix_close <= 25 :
+#             return 0
+#       elif 25 < vix_close  :
+#             return 1
+
+def vix_signal(vix_close):  #跑分布後的三分版
+    if vix_close <= 15:
+        return -1   
+    elif vix_close <= 19:
+        return 0    
+    else:
+        return 1    
+
+# def vix_signal(vix_close): #跑分布後的五分版
+#     if vix_close <= 13:
+#         return -2   
+#     elif vix_close <= 15:
+#         return -1   
+#     elif vix_close <= 20:
+#         return 0    
+#     elif vix_close <= 25:
+#         return 1    
+#     else:
+#         return 2    
+
+
+vix_df["恐慌分數"] = vix_df["Close"].apply(vix_signal)
+vix_data= vix_df[["日期", "恐慌分數", "Close"]].copy()
+vix_data.rename(columns={"Close": "VIX收盤價"}, inplace=True)
+
+
+# -----------------------------------------------------------ETF data ----------------------------------------------------
+ETF = "00733"
+ETF_data = "MoneyDJ_ETF_PremiumDiscount_" + ETF + ".csv"
+ETF_path = f"/content/{ETF_data}"
+
+ETF_df = pd.read_csv(ETF_path, encoding="utf-8")
+
+ETF_df ["日期"] = pd.to_datetime(ETF_df["交易日期"]).dt.date
+
+ETF_df = ETF_df[(ETF_df["日期"] >= start_date) & (ETF_df["日期"] <= end_date)].copy()
+ETF_df["折溢價利率"] = ETF_df["折溢價利率(%)"].str.replace("%", "").astype(float)
+
+# def ETF_score(rate):  #原版
+#     if rate >= 1:
+#         return -1
+#     elif -1 <= rate <= 1:
+#         return 0
+#     else:
+#         return 1
+
+def ETF_score(rate):  #三分版
+    if rate <= -0.10:
+        return 1    # 折價進場
+    elif rate >= 0.10:
+        return -1   # 溢價風險
+    else:
+        return 0    # 合理價格
+
+# def ETF_score(rate):  #五分版
+#     if rate <= -0.30:
+#         return 2    # 深度折價
+#     elif rate <= -0.10:
+#         return 1    # 折價
+#     elif rate < 0.10:
+#         return 0    # 合理
+#     elif rate < 0.30:
+#         return -1   # 溢價
+#     else:
+#         return -2   # 嚴重溢價
+
+ETF_df["折溢價分數"] = ETF_df["折溢價利率"].apply(ETF_score)
+
+# -----------------------------------------------------------PTT輿情 data ----------------------------------------------------
+#
+ptt_files = ["/content/ptt_stock/2024_scored.csv", "/content/ptt_stock/2025_scored.csv"]
+ptt_data = []
+
+for file in ptt_files:
+    df = pd.read_csv(file)
+    df.columns = df.columns.str.strip()
+    df["日期"] = pd.to_datetime(df["日期"]).dt.date
+    df["情緒分數"] = pd.to_numeric(df["情緒分數"], errors="coerce")  
+    ptt_data.append(df)
+
+ptt_df = pd.concat(ptt_data, ignore_index=True)
+
+ptt_df = ptt_df[(ptt_df["日期"] >= start_date) & (ptt_df["日期"] <= end_date)].copy()
+
+daily_ptt = ptt_df.groupby("日期")["情緒分數"].sum().reset_index()
+
+# 分類：正 → +1、負 → -1、0 → 0 邏輯川普說話
+def classify_ptt_score(score):
+    if pd.isna(score):
+        return pd.NA
+    if score > 0:
+        return 1
+    elif score < 0:
+        return -1
+    else:
+        return 0
+
+# 加入分類欄位
+daily_ptt["PTT_每日分數"] = daily_ptt["情緒分數"]
+daily_ptt["PTT_輿情分數"] = daily_ptt["情緒分數"].apply(classify_ptt_score)
+
+# 整理欄位格式
+ptt_sentiment = daily_ptt[["日期", "PTT_每日分數", "PTT_輿情分數"]]
+
+
+# ------------------------------------------------------keywords ---------------------------------------------------------------------
+with open("/content/negative.txt", "r", encoding="utf-8") as negative_file:
+    negative_keywords = [line.strip() for line in negative_file]   #在裡面先做strip()把/n(換行)去掉 ;  再用[]包成一個list
+
+
+
+with open("/content/positive.txt", "r", encoding="utf-8") as positive_file:
+    positive_keywords = [line.strip() for line in positive_file]
+
+# -----------------------------------------------------News analyse ------------------------------------------------------------------
+# 改良後：計算所有正負關鍵詞出現次數 → 傳回總體情緒分數（可正可負）
+def get_sentiment(title):
+    if pd.isna(title):
+        return 0
+    pos_score = sum(word in title for word in positive_keywords)
+    neg_score = sum(word in title for word in negative_keywords)
+    return pos_score - neg_score
+
+# 左側分類：情緒越負 → 越可能進場（+1）
+def left_side_label(score):
+    if score > 0:
+        return -1
+    elif score < 0:
+        return 1
+    else:
+        return 0
+# ------------------------------------------------------兆豐---------------------------------------------------------------
+
+megabank_news_csv = "/content/megabank_news.csv"
+megabank_news_df = pd.read_csv(megabank_news_csv)
+
+
+megabank_news_df["日期"] = pd.to_datetime(megabank_news_df["日期"]).dt.date
+
+megabank_news_df_filter = megabank_news_df[(megabank_news_df["日期"] >= start_date) & (megabank_news_df["日期"] <= end_date)].copy()
+
+megabank_news_df_filter["每日原始總分"] = megabank_news_df_filter["標題"].apply(get_sentiment)
+
+daily_sentiment = megabank_news_df_filter.groupby("日期")["每日原始總分"].sum().reset_index()
+
+daily_sentiment["左側情緒分類"] = daily_sentiment["每日原始總分"].apply(left_side_label)
+
+
+
+megabank_news_sentiment = daily_sentiment[["日期", "每日原始總分", "左側情緒分類"]]
+
+
+date_list = pd.date_range(start = start_date, end = end_date, freq="D")
+date_df = pd.DataFrame({"日期": date_list})
+date_df["日期"] = date_df["日期"].dt.date
+
+
+merged_df = pd.merge(date_df, megabank_news_sentiment ,on="日期", how="left")
+merged_df = pd.merge(merged_df, vix_data, on="日期", how="left")
+merged_df = pd.merge(merged_df,  ETF_df[["日期", "折溢價利率", "折溢價分數"]], on="日期", how="left")
+
+if "Unnamed: 0" in merged_df.columns:
+    merged_df.drop(columns=["Unnamed: 0"], inplace=True)
+print("")
+print("-----------------------------------------------------兆豐------------------------------------------------")
+print("")
+print(tabulate(merged_df, headers="keys", tablefmt="grid", showindex=False))
+
+merged_df.to_csv("/content/"+ ETF +"_megabank_news_analyze.csv")
+
+
+# ------------------------------------------------------鉅亨網-----------------------------------------------------------
+
+# 搜尋所有月份新聞檔案
+all_files = glob.glob( "/content/cnyes_headlines/cnyes_headlines_*.csv")
+
+# 儲存所有資料
+all_data = []
+
+for file in all_files:
+    df = pd.read_csv(file)
+    df.columns = df.columns.str.strip()
+    df = df.rename(columns={'時間': 'date', '標題': 'title'})
+    df['date'] = pd.to_datetime(df['date']).dt.date
+    df['sentiment'] = df['title'].apply(get_sentiment)
+    all_data.append(df)
+
+combined_df = pd.concat(all_data, ignore_index=True)
+
+daily_sentiment = combined_df.groupby('date')['sentiment'].sum().reset_index()
+daily_sentiment = daily_sentiment.rename(columns={'date': '日期', 'sentiment': '每日原始總分'})
+daily_sentiment['左側情緒分類'] = daily_sentiment['每日原始總分'].apply(left_side_label)
+
+
+daily_sentiment_filter = daily_sentiment[(daily_sentiment["日期"] >= start_date) & ((daily_sentiment["日期"] <= end_date))]
+
+
+merged_df = pd.merge(daily_sentiment_filter, vix_data, on="日期", how="left")
+merged_df = pd.merge(merged_df, ETF_df[["日期", "折溢價利率", "折溢價分數"]], on="日期", how="left")
+
+if "Unnamed: 0" in merged_df.columns:
+    merged_df.drop(columns=["Unnamed: 0"], inplace=True)
+print("")
+print("-----------------------------------------------------鉅亨網-------------------------------------------------")
+print("")
+print(tabulate(merged_df, headers="keys", tablefmt="grid", showindex=False))
+
+merged_df.to_csv("/content/"+ ETF +"_cnyes_News_analyze.csv")
+
+# ---------------------------------------------------------------------------------------------------------------
+
+#合併兩表
+# 重命名鉅亨網欄位避免衝突
+cnyes_news_sentiment = daily_sentiment_filter.rename(columns={
+    "每日原始總分": "鉅亨_每日原始總分",
+    "左側情緒分類": "鉅亨_左側情緒分類"
+})
+
+# 重命名兆豐欄位避免衝突（你已經在這段前面處理過了）
+megabank_news_sentiment = megabank_news_sentiment.rename(columns={
+    "每日原始總分": "兆豐_每日原始總分",
+    "左側情緒分類": "兆豐_左側情緒分類"
+})
+
+# 合併兩份情緒表（按日期）
+merged_sentiment = pd.merge(megabank_news_sentiment, cnyes_news_sentiment, on="日期", how="outer")
+merged_sentiment = pd.merge(merged_sentiment, ptt_sentiment, on="日期", how="outer")
+
+# 再合併 VIX + ETF 指標
+final_df = pd.merge(merged_sentiment, vix_data, on="日期", how="left")
+final_df = pd.merge(final_df, ETF_df[["日期", "折溢價利率", "折溢價分數"]], on="日期", how="left")
+
+# ------------------------------------------------------加總分與燈號邏輯 ---------------------------------------------------
+
+# 計算總分
+final_df["總分"] = (
+    final_df["折溢價分數"].astype("float") * 0.5 +
+    final_df["兆豐_左側情緒分類"].astype("float") * 0.1 +
+    final_df["鉅亨_左側情緒分類"].astype("float") * 0.1 +
+    final_df["PTT_輿情分數"].astype("float") * 0.1 +
+    final_df["恐慌分數"].astype("float") * 0.2
+)
+
+# 分類函式：依照總分給燈號
+# def classify_signal(score):  #舊版
+#     if pd.isna(score):
+#         return pd.NA
+#     if score >= 1.5:
+#         return "深綠燈"
+#     elif score >= 0.8:
+#         return "淺綠燈"
+#     elif score >= -0.79:
+#         return "黃燈"
+#     elif score >= -1.49:
+#         return "淺紅燈"
+#     else:
+#         return "紅燈"
+
+def classify_signal(score):  #依照分布的新分類
+    if pd.isna(score):
+        return pd.NA
+    if score >= 0.40:
+        return "深綠燈"
+    elif score >= 0.10:
+        return "淺綠燈"
+    elif score > -0.10:
+        return "黃燈"
+    elif score > -0.50:
+        return "淺紅燈"
+    else:
+        return "紅燈"
+
+# 加入燈號欄位
+final_df["評分燈號"] = final_df["總分"].apply(classify_signal)
+
+# 清理
+if "Unnamed: 0" in final_df.columns:
+    final_df.drop(columns=["Unnamed: 0"], inplace=True)
+
+print("\n-----------------------------------------------------總表（含評分）-------------------------------------------------\n")
+display_columns = ["日期","兆豐_每日原始總分" , "兆豐_左側情緒分類","鉅亨_每日原始總分", "鉅亨_左側情緒分類","PTT_每日分數", "PTT_輿情分數","折溢價利率", "折溢價分數","VIX收盤價", "恐慌分數", "總分", "評分燈號"]
+print(tabulate(final_df[display_columns], headers="keys", tablefmt="grid", showindex=False))
+
+final_df.to_csv(f"/content/{ETF}_sentiment_combined_with_score.csv", index=False, encoding="utf-8-sig")
+# %%
