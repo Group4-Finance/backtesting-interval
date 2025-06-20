@@ -1,0 +1,145 @@
+# ====================== 套件與日期設定 ======================
+import pandas as pd
+import glob
+from tabulate import tabulate
+
+start_date = pd.to_datetime("2024-05-01").date()
+end_date   = pd.to_datetime("2025-05-01").date()
+etf_list   = ["00733", "00850", "00692"]  # 可自行新增其他 ETF 代碼
+
+# ====================== 分數與分類函式 ======================
+def vix_signal(vix_close):
+    if vix_close <= 15: return -1
+    elif vix_close <= 19: return 0
+    else: return 1
+
+def classify_ptt_score(score):
+    if pd.isna(score): return pd.NA
+    if score > 0: return 1
+    elif score < 0: return -1
+    else: return 0
+
+def get_sentiment(title):
+    if pd.isna(title): return 0
+    pos_score = sum(word in title for word in positive_keywords)
+    neg_score = sum(word in title for word in negative_keywords)
+    return pos_score - neg_score
+
+def left_side_label(score):
+    if score > 0: return -1
+    elif score < 0: return 1
+    else: return 0
+
+def ETF_score(rate):
+    if rate >= 0.10: return -1
+    elif rate <= -0.10: return 1
+    else: return 0
+
+def classify_signal(score): 
+    if pd.isna(score): return pd.NA
+    if score >= 0.40: return "深綠燈"
+    elif score >= 0.10: return "淺綠燈"
+    elif score >= -0.10: return "黃燈"
+    elif score >= -0.50: return "淺紅燈"
+    else: return "紅燈"
+# ====================== 核心分析函式 ======================
+def analyze_etf(etf_code, vix_data, ptt_sentiment, positive_keywords, negative_keywords, megabank_df, cnyes_files):
+    # 讀取 ETF 折溢價
+    etf_path = f"/content/MoneyDJ_ETF_PremiumDiscount_{etf_code}.csv"
+    etf_df = pd.read_csv(etf_path, encoding="utf-8")
+    etf_df["日期"] = pd.to_datetime(etf_df["交易日期"]).dt.date
+    etf_df = etf_df[(etf_df["日期"] >= start_date) & (etf_df["日期"] <= end_date)].copy()
+    etf_df["折溢價利率"] = etf_df["折溢價利率(%)"].str.replace("%", "").astype(float)
+    etf_df["折溢價分數"] = etf_df["折溢價利率"].apply(ETF_score)
+
+    # 兆豐新聞
+    megabank = megabank_df.copy()
+    megabank = megabank[(megabank["日期"] >= start_date) & (megabank["日期"] <= end_date)].copy()
+    megabank["每日原始總分"] = megabank["標題"].apply(get_sentiment)
+    megabank = megabank.groupby("日期")["每日原始總分"].sum().reset_index()
+    megabank["左側情緒分類"] = megabank["每日原始總分"].apply(left_side_label)
+    megabank.rename(columns={
+        "每日原始總分": "兆豐_每日原始總分",
+        "左側情緒分類": "兆豐_左側情緒分類"
+    }, inplace=True)
+
+    # 鉅亨新聞
+    cnyes_all = []
+    for file in cnyes_files:
+        df = pd.read_csv(file)
+        df.columns = df.columns.str.strip()
+        df = df.rename(columns={"時間": "date", "標題": "title"})
+        df["date"] = pd.to_datetime(df["date"]).dt.date
+        df["sentiment"] = df["title"].apply(get_sentiment)
+        cnyes_all.append(df)
+    cnyes = pd.concat(cnyes_all)
+    cnyes = cnyes.groupby("date")["sentiment"].sum().reset_index()
+    cnyes.rename(columns={"date": "日期", "sentiment": "鉅亨_每日原始總分"}, inplace=True)
+    cnyes["鉅亨_左側情緒分類"] = cnyes["鉅亨_每日原始總分"].apply(left_side_label)
+    cnyes = cnyes[(cnyes["日期"] >= start_date) & (cnyes["日期"] <= end_date)]
+
+    # 合併所有指標
+    df = pd.merge(megabank, cnyes, on="日期", how="outer")
+    df = pd.merge(df, ptt_sentiment, on="日期", how="outer")
+    df = pd.merge(df, vix_data, on="日期", how="left")
+    df = pd.merge(df, etf_df[["日期", "折溢價利率", "折溢價分數"]], on="日期", how="left")
+
+    # 計算總分與燈號
+    df["總分"] = (
+        df["折溢價分數"].astype("float") * 0.5 +
+        df["兆豐_左側情緒分類"].astype("float") * 0.1 +
+        df["鉅亨_左側情緒分類"].astype("float") * 0.1 +
+        df["PTT_輿情分數"].astype("float") * 0.1 +
+        df["恐慌分數"].astype("float") * 0.2
+    )
+    df["評分燈號"] = df["總分"].apply(classify_signal)
+
+    # 輸出
+    df.to_csv(f"/content/{etf_code}_sentiment_combined_with_score.csv", index=False, encoding="utf-8-sig")
+
+    print(f"\n📈 ETF: {etf_code} 分析完成")
+    display_cols = ["日期", "兆豐_每日原始總分", "兆豐_左側情緒分類",
+                    "鉅亨_每日原始總分", "鉅亨_左側情緒分類",
+                    "PTT_每日分數", "PTT_輿情分數",
+                    "折溢價利率", "折溢價分數", "VIX收盤價", "恐慌分數", "總分", "評分燈號"]
+    print(tabulate(df[display_cols], headers="keys", tablefmt="grid", showindex=False))
+
+# ====================== 前置資料讀取 ======================
+# VIX
+vix_df = pd.read_csv("/content/vix_daily.csv")
+vix_df["日期"] = pd.to_datetime(vix_df["Date"]).dt.date
+vix_df = vix_df[(vix_df["日期"] >= start_date) & (vix_df["日期"] <= end_date)].copy()
+vix_df["恐慌分數"] = vix_df["Close"].apply(vix_signal)
+vix_data = vix_df[["日期", "Close", "恐慌分數"]].rename(columns={"Close": "VIX收盤價"})
+
+# PTT 輿情
+ptt_files = ["/content/ptt_stock/2024_scored.csv", "/content/ptt_stock/2025_scored.csv"]
+ptt_all = []
+for f in ptt_files:
+    df = pd.read_csv(f)
+    df["日期"] = pd.to_datetime(df["日期"]).dt.date
+    df["情緒分數"] = pd.to_numeric(df["情緒分數"], errors="coerce")
+    ptt_all.append(df)
+ptt_df = pd.concat(ptt_all)
+ptt_df = ptt_df[(ptt_df["日期"] >= start_date) & (ptt_df["日期"] <= end_date)]
+ptt_grouped = ptt_df.groupby("日期")["情緒分數"].sum().reset_index()
+ptt_grouped["PTT_每日分數"] = ptt_grouped["情緒分數"]
+ptt_grouped["PTT_輿情分數"] = ptt_grouped["情緒分數"].apply(classify_ptt_score)
+ptt_sentiment = ptt_grouped[["日期", "PTT_每日分數", "PTT_輿情分數"]]
+
+# 關鍵詞
+with open("/content/positive.txt", "r", encoding="utf-8") as f:
+    positive_keywords = [line.strip() for line in f]
+with open("/content/negative.txt", "r", encoding="utf-8") as f:
+    negative_keywords = [line.strip() for line in f]
+
+# 兆豐新聞
+megabank_df = pd.read_csv("/content/megabank_news.csv")
+megabank_df["日期"] = pd.to_datetime(megabank_df["日期"]).dt.date
+
+# 鉅亨新聞
+cnyes_files = glob.glob("/content/cnyes_headlines/cnyes_headlines_*.csv")
+
+# ====================== 執行多 ETF 回測 ======================
+for etf in etf_list:
+    analyze_etf(etf, vix_data, ptt_sentiment, positive_keywords, negative_keywords, megabank_df, cnyes_files)
