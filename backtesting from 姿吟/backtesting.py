@@ -28,8 +28,18 @@ DISCOUNT_WEIGHT = 0.5   # 折溢價分數權重
 SENTIMENT_WEIGHT = 0.1  # 輿情情緒分數權重
 VIX_WEIGHT = 0.2        # VIX指數分數權重
 
+# VIX指數設定 (三分法)
+VIX_LOW = 15
+VIX_MID = 25
+
+# 燈號下界設定
+DARK_GREEN_LOWER_BOUND = 0.8   # 深綠燈下界
+LIGHT_GREEN_LOWER_BOUND = 0.3  # 淺綠燈下界
+YELLOW_LOWER_BOUND = -0.3      # 黃燈下界
+LIGHT_RED_LOWER_BOUND = -0.8   # 淺紅燈下界
+
 # ------------------------------------------------------
-# 折溢價分數分類 & VIX指數分數分類 設定
+# 折溢價分數分類 & VIX指數分數分類
 # ------------------------------------------------------
 def classify_discount(rate):
 
@@ -54,9 +64,9 @@ def classify_vix(vix_value):
     if pd.isna(vix_value):
         return pd.NA
 
-    if vix_value <= 17.12:
+    if vix_value <= VIX_LOW:
         return -1
-    elif vix_value <= 22.72:
+    elif vix_value <= VIX_MID :
         return 0
     else:
         return 1
@@ -70,13 +80,13 @@ def classify_signal(score):
     if pd.isna(score):
         return pd.NA
 
-    if score >= 0.8:
+    if score >= DARK_GREEN_LOWER_BOUND:
         return "深綠燈"
-    elif score >= 0.3:
+    elif score >= LIGHT_GREEN_LOWER_BOUND:
         return "淺綠燈"
-    elif score >= -0.3:
+    elif score >= YELLOW_LOWER_BOUND:
         return "黃燈"
-    elif score >= -0.8:
+    elif score >= LIGHT_RED_LOWER_BOUND:
         return "淺紅燈"
     else:
         return "紅燈"
@@ -123,11 +133,11 @@ def plot_signal_with_background(df, etf_code, start_date, end_date):
 
     # 定義Y軸範圍和對應顏色
     y_ranges = [
-        (-2, -1.5, "#FF0000"),  # 紅燈
-        (-1.5, -0.8, "#FFA07A"),  # 淺紅燈
-        (-0.8, 0.8, "#FFFF00"),  # 黃燈
-        (0.8, 1.5, "#90EE90"),  # 淺綠燈
-        (1.5, 2, "#006400")  # 深綠燈
+        (-2, LIGHT_RED_LOWER_BOUND, "#FF0000"),  # 紅燈
+        (LIGHT_RED_LOWER_BOUND, YELLOW_LOWER_BOUND, "#FFA07A"),  # 淺紅燈
+        (YELLOW_LOWER_BOUND, LIGHT_GREEN_LOWER_BOUND, "#FFFF00"),  # 黃燈
+        (LIGHT_GREEN_LOWER_BOUND, DARK_GREEN_LOWER_BOUND, "#90EE90"),  # 淺綠燈
+        (DARK_GREEN_LOWER_BOUND, 2, "#006400")  # 深綠燈
     ]
 
     # 繪製背景色（基於Y軸範圍）
@@ -138,10 +148,10 @@ def plot_signal_with_background(df, etf_code, start_date, end_date):
     ax.plot(dates, scores, marker='o', linestyle='-', color='blue', linewidth=2, markersize=6)
 
     # 添加參考線
-    ax.axhline(y=1.5, color='green', linestyle='--', alpha=0.5)  # 深綠燈下限
-    ax.axhline(y=0.8, color='green', linestyle='--', alpha=0.3)  # 淺綠燈下限
-    ax.axhline(y=-0.8, color='red', linestyle='--', alpha=0.3)  # 淺紅燈上限
-    ax.axhline(y=-1.5, color='red', linestyle='--', alpha=0.5)  # 紅燈上限
+    ax.axhline(y=DARK_GREEN_LOWER_BOUND, color='green', linestyle='--', alpha=0.5)  # 深綠燈下限
+    ax.axhline(y=LIGHT_GREEN_LOWER_BOUND, color='green', linestyle='--', alpha=0.3)  # 淺綠燈下限
+    ax.axhline(y=YELLOW_LOWER_BOUND, color='red', linestyle='--', alpha=0.3)  # 淺紅燈上限
+    ax.axhline(y=LIGHT_RED_LOWER_BOUND, color='red', linestyle='--', alpha=0.5)  # 紅燈上限
     ax.axhline(y=0, color='gray', linestyle='-', alpha=0.5)  # 中線
 
     # 設定標題和標籤
