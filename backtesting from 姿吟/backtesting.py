@@ -161,11 +161,11 @@ def plot_signal_with_background(df, etf_code, start_date, end_date):
 
     # 設定圖例
     legend_elements = [
-        Rectangle((0, 0), 1, 1, fc="#006400", alpha=0.3, label='深綠燈 (>=1.5)'),
-        Rectangle((0, 0), 1, 1, fc="#90EE90", alpha=0.3, label='淺綠燈 (0.8~1.49)'),
-        Rectangle((0, 0), 1, 1, fc="#FFFF00", alpha=0.3, label='黃燈 (-0.79~0.79)'),
-        Rectangle((0, 0), 1, 1, fc="#FFA07A", alpha=0.3, label='淺紅燈 (-1.49~-0.8)'),
-        Rectangle((0, 0), 1, 1, fc="#FF0000", alpha=0.3, label='紅燈 (<=-1.5)'),
+        Rectangle((0, 0), 1, 1, fc="#006400", alpha=0.3, label='深綠燈'),
+        Rectangle((0, 0), 1, 1, fc="#90EE90", alpha=0.3, label='淺綠燈'),
+        Rectangle((0, 0), 1, 1, fc="#FFFF00", alpha=0.3, label='黃燈'),
+        Rectangle((0, 0), 1, 1, fc="#FFA07A", alpha=0.3, label='淺紅燈'),
+        Rectangle((0, 0), 1, 1, fc="#FF0000", alpha=0.3, label='紅燈'),
         Line2D([0], [0], color='blue', lw=2, label='總分')
     ]
     ax.legend(handles=legend_elements, loc='upper right')
