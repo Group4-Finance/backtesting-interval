@@ -1,5 +1,7 @@
 # -----------------------------------------------------
 # 需要以下檔案
+# positive.txt 
+# negative.txt
 # cnyes_headlines_*.csv
 # megabank_news.csv
 # PTT_sentiment
