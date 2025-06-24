@@ -5,7 +5,8 @@
 # 輿情情緒分數數據: sentiment_score.csv
 #
 # 最後匯出 {ETF_CODE}買入評分回測{START_DATE}至{END_DATE}
-# 以及 {etf_code}_燈號視覺化_{start_date}_至_{end_date}
+# {etf_code}_燈號視覺化_{start_date}_至_{end_date}
+# {etf_code}_互動式燈號圖_{start_date}_至_{end_date}
 # -----------------------------------------------------
 
 import pandas as pd
@@ -16,6 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
+import plotly.express as px  # 新增plotly套件
 
 # ------------------------------------------------------
 
@@ -24,25 +26,26 @@ START_DATE = "2024-01-01"
 END_DATE = "2024-12-31"
 
 # 權重設定
-DISCOUNT_WEIGHT = 0.5   # 折溢價分數權重
+DISCOUNT_WEIGHT = 0.5  # 折溢價分數權重
 SENTIMENT_WEIGHT = 0.1  # 輿情情緒分數權重
-VIX_WEIGHT = 0.2        # VIX指數分數權重
+VIX_WEIGHT = 0.2  # VIX指數分數權重
 
-# VIX指數設定 (三分法)
+# VIX指數設定
 VIX_LOW = 15
 VIX_MID = 25
 
 # 燈號下界設定
-DARK_GREEN_LOWER_BOUND = 0.8   # 深綠燈下界
+DARK_GREEN_LOWER_BOUND = 0.8  # 深綠燈下界
 LIGHT_GREEN_LOWER_BOUND = 0.3  # 淺綠燈下界
-YELLOW_LOWER_BOUND = -0.3      # 黃燈下界
-LIGHT_RED_LOWER_BOUND = -0.8   # 淺紅燈下界
+YELLOW_LOWER_BOUND = -0.3  # 黃燈下界
+LIGHT_RED_LOWER_BOUND = -0.8  # 淺紅燈下界
+
 
 # ------------------------------------------------------
-# 折溢價分數分類 & VIX指數分數分類
+# 分數分類設定
 # ------------------------------------------------------
 def classify_discount(rate):
-
+    ''''折溢價分數分類'''
     if pd.isna(rate):
         return pd.NA
 
@@ -60,23 +63,19 @@ def classify_discount(rate):
 
 
 def classify_vix(vix_value):
-
+    ''''VIX指數分數分類'''
     if pd.isna(vix_value):
         return pd.NA
 
     if vix_value <= VIX_LOW:
         return -1
-    elif vix_value <= VIX_MID :
+    elif vix_value <= VIX_MID:
         return 0
     else:
         return 1
 
-# ------------------------------------------------------
-# 燈號分類
-# ------------------------------------------------------
-
 def classify_signal(score):
-
+    ''''燈號分類'''
     if pd.isna(score):
         return pd.NA
 
@@ -90,6 +89,7 @@ def classify_signal(score):
         return "淺紅燈"
     else:
         return "紅燈"
+
 
 # ------------------------------------------------------
 # 計算總分: 折溢價分數 * DISCOUNT_WEIGHT + (三情緒總和) * SENTIMENT_WEIGHT + vix * VIX_WEIGHT
@@ -111,12 +111,12 @@ def calculate_total_score(row):
 
     return round(total, 2)
 
+
 # ------------------------------------------------------
 # 繪製評分趨勢圖
 # ------------------------------------------------------
 
 def plot_signal_with_background(df, etf_code, start_date, end_date):
-
     try:
         plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Microsoft JhengHei']
         plt.rcParams['axes.unicode_minus'] = False
@@ -140,7 +140,7 @@ def plot_signal_with_background(df, etf_code, start_date, end_date):
         (DARK_GREEN_LOWER_BOUND, 2, "#006400")  # 深綠燈
     ]
 
-    # 繪製背景色（基於Y軸範圍）
+    # 繪製背景色
     for y_min, y_max, color in y_ranges:
         ax.axhspan(y_min, y_max, facecolor=color, alpha=0.3)
 
@@ -182,6 +182,57 @@ def plot_signal_with_background(df, etf_code, start_date, end_date):
     plt.close()
 
     return plot_file
+
+
+# ------------------------------------------------------
+# 繪製互動式圖形
+# ------------------------------------------------------
+
+def create_interactive_plot(df, etf_code, start_date, end_date):
+    """創建互動式市價與燈號標記圖"""
+    try:
+        # 篩選有燈號且不是黃燈的數據點
+        plot_df = df[(df["燈號"].notna()) & (df["燈號"] != "黃燈")].copy()
+        plot_df["市價"] = pd.to_numeric(plot_df["市價"], errors="coerce")
+        plot_df = plot_df.dropna(subset=["市價"])
+
+        # 創建互動式圖表
+        fig = px.scatter(plot_df,
+                         x="日期",
+                         y="市價",
+                         color="燈號",
+                         title=f"ETF {etf_code} 市價與燈號標記 ({start_date} 至 {end_date})",
+                         hover_data=["總分", "折溢價利率(%)", "VIX收盤價"],
+                         color_discrete_map={
+                             "紅燈": "red",
+                             "淺紅燈": "salmon",
+                             "淺綠燈": "lightgreen",
+                             "深綠燈": "darkgreen"
+                         })
+
+        # 添加市價走勢線
+        fig.add_scatter(x=df["日期"],
+                        y=pd.to_numeric(df["市價"], errors="coerce"),
+                        mode="lines",
+                        name="市價走勢",
+                        line=dict(color="blue", width=2))
+
+        # 調整圖表佈局
+        fig.update_layout(
+            xaxis_title="日期",
+            yaxis_title="市價",
+            hovermode="x unified",
+            legend_title="燈號類型"
+        )
+
+        # 保存為HTML文件
+        interactive_file = f"{etf_code}_互動式燈號圖_{start_date}_至_{end_date}.html"
+        fig.write_html(interactive_file)
+
+        return interactive_file
+    except Exception as e:
+        print(f"創建互動式圖表時發生錯誤: {e}")
+        return None
 
 
 # ------------------------------------------------------
@@ -307,6 +358,18 @@ def main():
         print(f"\n燈號視覺化圖已保存到: {plot_file}")
     except Exception as e:
         print(f"\n繪製燈號視覺化圖時發生錯誤: {e}")
+
+    # ------------------------------------------------------
+    # 7. 創建互動式圖表
+    # ------------------------------------------------------
+    try:
+        interactive_file = create_interactive_plot(result_df, ETF_CODE, START_DATE, END_DATE)
+        if interactive_file:
+            print(f"\n 互動式圖表已儲存為 {interactive_file}")
+        else:
+            print("\n 互動式圖表創建失敗")
+    except Exception as e:
+        print(f"\n創建互動式圖表時發生錯誤: {e}")
 
 
 if __name__ == "__main__":
