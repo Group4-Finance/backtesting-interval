@@ -1,2 +1,5 @@
 # backtesting-interval
-請大家把ETF回測分析放在這裡
+
+Terminal執行streamlit run .\ETF_signal\ETF_data\etf_signal_dashboard.py(路徑需修改)
+
+
