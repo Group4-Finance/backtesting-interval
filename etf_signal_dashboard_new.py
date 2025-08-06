@@ -1,22 +1,23 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from datetime import timedelta
 from pyecharts import options as opts
 from pyecharts.charts import Gauge
 from streamlit_echarts import st_pyecharts
 
 # === ETF 選單設定 ===
 etf_list = {
-    "00646": "元大S&P500",
     "0050": "元大台灣50",
-    "0056": "元大高股息", 
-    "00757": "統一FANG+",
-    "00878": "國泰永續高股息",
-    "00881": "國泰台灣5G",
+    "0052": "富邦科技",
+    "00646": "元大S&P500",
+    "00662": "富邦NASDAQ",
     "00692": "富邦公司治理",
-    "00713": "元大高息低波",
+    "00713": "元大台灣高息低波",
+    "00733": "富邦台灣中小",
+    "00757": "統一FANG+",
     "00830": "國泰費城半導體",
-    "00733": "富邦中小"
+    "00850": "元大台灣ESG永續"
 }
 
 # === Streamlit 介面 ===
@@ -31,15 +32,19 @@ df = df[df["總分"].notna()].sort_values("Date")
 available_dates = df["Date"].dt.date.unique()
 selected_date = st.selectbox("請選擇查詢日期", available_dates)
 
-# === 取得資料 ===
-try:
-    today = df[df["Date"].dt.date == selected_date].iloc[0]
-    idx = df[df["Date"].dt.date == selected_date].index[0]
-    yesterday = df.iloc[idx - 1] if idx > 0 else None
-except:
+# === 取得資料（以日期為主，不用 index）===
+today_row = df[df["Date"].dt.date == selected_date]
+if today_row.empty:
     st.warning(f"⚠️ 選擇的日期 {selected_date} 沒有資料。")
     st.stop()
+today = today_row.iloc[0]
 
+# 計算昨天日期，找昨天的資料（注意可能缺資料）
+yesterday_date = selected_date - timedelta(days=1)
+yesterday_row = df[df["Date"].dt.date == yesterday_date]
+yesterday = yesterday_row.iloc[0] if not yesterday_row.empty else None
+
+# 計算分數與變動
 score = round(today["總分"], 2)
 delta_score = round(score - (yesterday["總分"] if yesterday is not None else 0), 2)
 
@@ -99,7 +104,7 @@ gauge = (
 # === 顯示圖表 ===
 st_pyecharts(gauge)
 
-# === 燈號與建議 ===
+# === 中間置中的決策建議 ===
 if score >= 0.5:
     level = "深綠燈"
     color = "#27AE60"
@@ -119,9 +124,18 @@ elif -0.7 < score <= -0.5:
 else:
     level = "紅燈"
     color = "#E74C3C"
-    suggestion = "分階段止盈、降低曝險"
+    suggestion = "暫緩進場、避免追高"
 
-# === 分數摘要與建議 ===
+st.markdown(f"""
+<div style="text-align:center; margin-top:-30px;margin-bottom:40px;">
+    <div style="font-size:24px; font-weight:bold;">🧠 決策建議</div>
+    <div style="font-size:22px; font-weight:bold; color:{color};">
+        {suggestion}
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# === 分數摘要與燈號表 ===
 col1, col2 = st.columns(2)
 
 with col1:
@@ -133,12 +147,6 @@ with col1:
     ● <b>總分：</b> {score:.2f}<br>
     ● <b>昨日燈號：</b> {yesterday['燈號'] if yesterday is not None else '無'}<br>
     ● <b>分數變化：</b> Δ {delta_score:+.2f}
-    </div>
-
-    <br>
-    <div style="font-size:22px; font-weight:bold;">🧠 決策建議：</div>
-    <div style="font-size:20px; font-weight:bold; color:{color};">
-    {suggestion}
     </div>
     """, unsafe_allow_html=True)
 
