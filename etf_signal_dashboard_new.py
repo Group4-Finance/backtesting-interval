@@ -4,7 +4,7 @@ import numpy as np
 from datetime import timedelta
 from pyecharts import options as opts
 from pyecharts.charts import Gauge
-from streamlit_echarts import st_pyecharts 
+from streamlit_echarts import st_pyecharts
 
 # === ETF 選單設定 ===
 etf_list = {
@@ -120,11 +120,11 @@ elif -0.5 < score < 0.2:
 elif -0.7 < score <= -0.5:
     level = "淺紅燈"
     color = "#EC7063"
-    suggestion = "保守操作，停看聽"
+    suggestion = "保守操作、停看聽"
 else:
     level = "紅燈"
     color = "#E74C3C"
-    suggestion = "暫緩進場、避免追高"
+    suggestion = "部分止盈、降低曝險"
 
 st.markdown(f"""
 <div style="text-align:center; margin-top:-30px;margin-bottom:40px;">
